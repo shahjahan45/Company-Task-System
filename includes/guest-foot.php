@@ -1,0 +1,1 @@
+<script>window.APP={baseUrl:<?=json_encode(rtrim(url(''),'/'))?>};</script><script src="<?=e(url('assets/js/app.js'))?>"></script></body></html>

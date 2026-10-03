@@ -1,0 +1,1 @@
+<?php require dirname(__DIR__).'/includes/bootstrap.php'; verify_csrf(); logout_user(); redirect('login.php');
