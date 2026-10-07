@@ -1,1 +1,1 @@
-</main></section></div><script>window.APP={baseUrl:<?=json_encode(rtrim(url(''),'/'))?>,refreshSeconds:<?=json_encode($refresh??20)?>};</script><script src="<?=e(url('assets/js/app.js'))?>"></script></body></html>
+</main></section></div><script>window.APP={baseUrl:<?=json_encode(rtrim(url(''),'/'))?>,refreshSeconds:<?=json_encode($refresh??20)?>};</script><script src="<?=e(asset_url('assets/js/app.js'))?>"></script></body></html>

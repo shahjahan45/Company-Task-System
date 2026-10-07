@@ -10,3 +10,11 @@ DirectoryIndex index.php
     Header always set X-Frame-Options "SAMEORIGIN"
     Header always set Referrer-Policy "strict-origin-when-cross-origin"
 </IfModule>
+
+<IfModule mod_headers.c>
+    <FilesMatch "\.(php)$">
+        Header always set Cache-Control "no-store, no-cache, must-revalidate, max-age=0"
+        Header always set Pragma "no-cache"
+        Header always set Expires "0"
+    </FilesMatch>
+</IfModule>

@@ -8,7 +8,7 @@ try{transaction(function(PDO $pdo)use($id,$title,$assignee,$status,$progress,$pr
     $q=$pdo->prepare('SELECT * FROM tasks WHERE id=? FOR UPDATE');$q->execute([$id]);$old=$q->fetch();if(!$old)throw new RuntimeException('Task not found.');
     if(!task_can_transition((string)$old['status'],$status) && !can('tasks.review'))throw new RuntimeException('That task status transition is not allowed.');
     $cat=(int)($_POST['category_id']??0)?:null;$due=!empty($_POST['due_at'])?date('Y-m-d H:i:s',strtotime((string)$_POST['due_at'])):null;$description=trim((string)($_POST['description']??''));
-    $actual=$status==='completed'?100:$progress;$completed=$status==='completed'?($old['completed_at']?:gmdate('Y-m-d H:i:s')):null;
+    $actual=$status==='completed'?100:$progress;if($status!=='completed' && $old['status']==='completed' && $actual>=100)$actual=90;if($status==='in_review' && $actual<80)$actual=80;if($status==='in_progress' && $actual===0)$actual=25;$completed=$status==='completed'?($old['completed_at']?:gmdate('Y-m-d H:i:s')):null;
     $pdo->prepare('UPDATE tasks SET title=?,description=?,category_id=?,priority=?,primary_assignee_id=?,due_at=?,status=?,progress=?,completed_at=? WHERE id=?')->execute([$title,$description?:null,$cat,$priority,$assignee,$due,$status,$actual,$completed,$id]);
     $pdo->prepare('DELETE FROM task_assignees WHERE task_id=?')->execute([$id]);$pdo->prepare('INSERT INTO task_assignees(task_id,employee_id) VALUES(?,?)')->execute([$id,$assignee]);
     if($old['status']!==$status)$pdo->prepare('INSERT INTO task_activity_logs(task_id,user_id,action,from_value,to_value) VALUES(?,? ,"status_changed",?,?)')->execute([$id,current_user_id(),$old['status'],$status]);

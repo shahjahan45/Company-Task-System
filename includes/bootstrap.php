@@ -23,3 +23,5 @@ if (!isset($_SESSION['_csrf'])) $_SESSION['_csrf'] = bin2hex(random_bytes(32));
 
 require_once __DIR__ . '/db.php';
 require_once __DIR__ . '/auth.php';
+
+if (schema_ready()) ensure_runtime_schema();

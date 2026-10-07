@@ -1,24 +1,205 @@
 <?php
-require __DIR__.'/includes/bootstrap.php';
+require __DIR__ . '/includes/bootstrap.php';
 require_permission('drivers.view');
-$pdo=db();
-$search=trim((string)($_GET['q']??''));$status=trim((string)($_GET['status']??''));$page=max(1,(int)($_GET['page']??1));$per=15;
-$where=['1=1'];$params=[];
-if($search!==''){$where[]='(d.full_name LIKE ? OR d.phone LIKE ? OR d.driver_code LIKE ?)';$like='%'.$search.'%';array_push($params,$like,$like,$like);}
-if($status!==''){$where[]='d.status=?';$params[]=$status;}
-$sqlWhere=implode(' AND ',$where);
-$q=$pdo->prepare("SELECT COUNT(*) FROM drivers d WHERE $sqlWhere");$q->execute($params);$meta=pagination_meta((int)$q->fetchColumn(),$page,$per);
-$q=$pdo->prepare("SELECT d.*,e.full_name employee_name FROM drivers d LEFT JOIN employees e ON e.id=d.assigned_employee_id WHERE $sqlWhere ORDER BY d.registration_at DESC LIMIT {$per} OFFSET {$meta['offset']}");$q->execute($params);$drivers=$q->fetchAll();
-$employees=$pdo->query("SELECT id,full_name FROM employees WHERE employment_status='active' ORDER BY full_name")->fetchAll();
-$editDriver=null;$editId=(int)($_GET['edit']??0);if($editId&&can('drivers.edit')){$q=$pdo->prepare('SELECT * FROM drivers WHERE id=?');$q->execute([$editId]);$editDriver=$q->fetch()?:null;}
-$title='Driver Growth';$active='drivers';include __DIR__.'/includes/header.php';
+
+$pdo = db();
+ensure_runtime_schema();
+$summary = growth_count_summary();
+$rows = $pdo->query(
+    "SELECT g.*, COALESCE(u.email, 'System') AS updated_by_email
+     FROM daily_growth_counts g
+     LEFT JOIN users u ON u.id = g.updated_by
+     ORDER BY g.activity_date DESC
+     LIMIT 60"
+)->fetchAll();
+
+$title = 'Registration Counts';
+$active = 'drivers';
+include __DIR__ . '/includes/header.php';
 ?>
-<section class="section-toolbar reveal"><div><p class="eyebrow">Growth operations</p><h2>Driver registration management</h2><p class="muted">Complete CRUD for driver records, verification, assignment, search, and campaign counting.</p></div><div class="toolbar-actions"><?php if(can('drivers.export')):?><a class="btn btn-soft" href="<?=e(url('handlers/export-drivers.php'))?>"><i data-lucide="download"></i>Export CSV</a><?php endif;?><?php if(can('drivers.create')):?><button class="btn btn-primary" data-modal-open="driverModal"><i data-lucide="user-plus"></i>Add driver</button><?php endif;?></div></section>
-<section class="panel reveal stagger-1"><form class="filter-bar" method="get" action="<?=e(url('drivers.php'))?>"><div class="search-field"><i data-lucide="search"></i><input name="q" value="<?=e($search)?>" placeholder="Search name, phone, or driver ID"></div><select name="status"><option value="">All statuses</option><?php foreach(['lead','registered','verification_pending','verified','rejected','inactive'] as $s):?><option value="<?=e($s)?>" <?=$status===$s?'selected':''?>><?=e(ucwords(str_replace('_',' ',$s)))?></option><?php endforeach;?></select><button class="btn btn-soft">Filter</button></form>
-<div class="table-wrap"><table><thead><tr><th>Driver</th><th>Registration</th><th>Status</th><th>Source</th><th>Assigned to</th><th>Actions</th></tr></thead><tbody><?php if(!$drivers):?><tr><td colspan="6"><div class="empty-state compact"><i data-lucide="car-front"></i><h4>No drivers found</h4><p>Add the first driver registration.</p></div></td></tr><?php else:foreach($drivers as $d):?><tr><td><div class="person-cell"><span class="avatar small"><?=e(strtoupper(substr($d['full_name'],0,1)))?></span><div><strong><?=e($d['full_name'])?></strong><small><?=e($d['driver_code'])?> · <?=e($d['phone'])?></small></div></div></td><td><strong><?=e(format_datetime($d['registration_at'],'d M Y'))?></strong><small><?=e(format_datetime($d['registration_at'],'h:i A'))?></small></td><td><span class="status-chip <?=$d['verification_status']==='verified'?'on-track':'neutral'?>"><?=e(ucwords(str_replace('_',' ',$d['status'])))?></span></td><td><?=e($d['registration_source']?:'—')?></td><td><?=e($d['employee_name']?:'Unassigned')?></td><td><div class="toolbar-actions"><?php if($d['verification_status']!=='verified'&&can('drivers.verify')):?><form method="post" action="<?=e(url('handlers/driver-verify.php'))?>"><?=csrf_field()?><input type="hidden" name="id" value="<?=$d['id']?>"><button class="btn btn-xs btn-success" data-confirm="Verify this driver and count the registration if eligible?">Verify</button></form><?php endif;?><?php if(can('drivers.edit')):?><a class="btn btn-xs btn-soft" href="?<?=http_build_query(['q'=>$search,'status'=>$status,'page'=>$meta['page'],'edit'=>$d['id']])?>"><i data-lucide="pencil"></i>Edit</a><form method="post" action="<?=e(url('handlers/driver-delete.php'))?>"><?=csrf_field()?><input type="hidden" name="id" value="<?=$d['id']?>"><button class="btn btn-xs btn-danger" data-confirm="Delete <?=e($d['full_name'])?>? This also removes campaign membership/history for this driver."><i data-lucide="trash-2"></i>Delete</button></form><?php endif;?></div></td></tr><?php endforeach;endif;?></tbody></table></div>
-<div class="pagination"><span>Page <?=$meta['page']?> of <?=$meta['pages']?> · <?=number_format($meta['total'])?> records</span><div><?php if($meta['page']>1):?><a class="btn btn-xs btn-soft" href="?<?=http_build_query(['q'=>$search,'status'=>$status,'page'=>$meta['page']-1])?>">Previous</a><?php endif;?><?php if($meta['page']<$meta['pages']):?><a class="btn btn-xs btn-soft" href="?<?=http_build_query(['q'=>$search,'status'=>$status,'page'=>$meta['page']+1])?>">Next</a><?php endif;?></div></div></section>
 
-<div class="modal" id="driverModal" aria-hidden="true"><div class="modal-card"><button class="modal-close" data-modal-close aria-label="Close"><i data-lucide="x"></i></button><p class="eyebrow">New registration</p><h3>Add driver</h3><form class="form-grid" method="post" action="<?=e(url('handlers/driver-save.php'))?>"><?=csrf_field()?><label class="span-2">Full name<input name="full_name" required></label><label>Phone with country code<input name="phone" required placeholder="+974 5xxx xxxx"></label><label>Status<select name="status"><option value="verification_pending">Verification Pending</option><option value="registered">Registered</option><option value="lead">Lead</option><?php if(can('drivers.verify')):?><option value="verified">Verified</option><?php endif;?></select></label><label>Registration source<input name="registration_source" placeholder="Office / Referral / Campaign"></label><label>Assigned employee<select name="assigned_employee_id"><option value="">Unassigned</option><?php foreach($employees as $emp):?><option value="<?=$emp['id']?>"><?=e($emp['full_name'])?></option><?php endforeach;?></select></label><label class="span-2">Notes<textarea name="notes" rows="3"></textarea></label><div class="form-actions span-2"><button type="button" class="btn btn-soft" data-modal-close>Cancel</button><button class="btn btn-primary">Save driver</button></div></form></div></div>
+<section class="section-toolbar registration-page-head reveal">
+    <div>
+        <p class="eyebrow">Count-only growth tracking</p>
+        <h2>Customer &amp; driver registrations</h2>
+        <p class="muted">Maintain daily registration totals without storing customer or driver personal details.</p>
+    </div>
+    <?php if (can('drivers.create')): ?>
+        <button class="btn btn-primary" data-modal-open="growthCountModal" id="new-growth-count">
+            <i data-lucide="plus"></i>
+            Add daily count
+        </button>
+    <?php endif; ?>
+</section>
 
-<?php if($editDriver):?><div class="modal open" id="driverEditModal" aria-hidden="false"><div class="modal-card"><a class="modal-close" href="<?=e(url('drivers.php'))?>"><i data-lucide="x"></i></a><p class="eyebrow">Driver CRUD</p><h3>Edit <?=e($editDriver['driver_code'])?></h3><form class="form-grid" method="post" action="<?=e(url('handlers/driver-update.php'))?>"><?=csrf_field()?><input type="hidden" name="id" value="<?=$editDriver['id']?>"><label class="span-2">Full name<input name="full_name" value="<?=e($editDriver['full_name'])?>" required></label><label>Phone<input name="phone" value="<?=e($editDriver['phone'])?>" required></label><label>Status<select name="status"><?php foreach(['lead','registered','verification_pending','verified','rejected','inactive'] as $s):if($s==='verified'&&!can('drivers.verify')&&$editDriver['status']!=='verified')continue;?><option value="<?=$s?>" <?=$editDriver['status']===$s?'selected':''?>><?=e(ucwords(str_replace('_',' ',$s)))?></option><?php endforeach;?></select></label><label>Source<input name="registration_source" value="<?=e($editDriver['registration_source']??'')?>"></label><label>Assigned employee<select name="assigned_employee_id"><option value="">Unassigned</option><?php foreach($employees as $emp):?><option value="<?=$emp['id']?>" <?=((int)$editDriver['assigned_employee_id']===(int)$emp['id'])?'selected':''?>><?=e($emp['full_name'])?></option><?php endforeach;?></select></label><label class="span-2">Notes<textarea name="notes" rows="3"><?=e($editDriver['notes']??'')?></textarea></label><div class="form-actions span-2"><a class="btn btn-soft" href="<?=e(url('drivers.php'))?>">Cancel</a><button class="btn btn-primary">Update driver</button></div></form></div></div><?php endif;?>
-<?php include __DIR__.'/includes/footer.php';?>
+<section class="count-kpi-grid registration-kpis reveal stagger-1" aria-label="Registration summary">
+    <article class="count-kpi customer">
+        <span class="metric-icon violet"><i data-lucide="user-round-plus"></i></span>
+        <div>
+            <small>Customers today</small>
+            <strong><?= number_format($summary['today_customers']) ?></strong>
+            <p><?= e(date('d M Y', strtotime($summary['today_date']))) ?></p>
+        </div>
+    </article>
+    <article class="count-kpi driver">
+        <span class="metric-icon blue"><i data-lucide="car-front"></i></span>
+        <div>
+            <small>Drivers today</small>
+            <strong><?= number_format($summary['today_drivers']) ?></strong>
+            <p><?= e(date('d M Y', strtotime($summary['today_date']))) ?></p>
+        </div>
+    </article>
+    <article class="count-kpi customer">
+        <span class="metric-icon violet"><i data-lucide="history"></i></span>
+        <div>
+            <small>Customers yesterday</small>
+            <strong><?= number_format($summary['yesterday_customers']) ?></strong>
+            <p><?= e(date('d M Y', strtotime($summary['yesterday_date']))) ?></p>
+        </div>
+    </article>
+    <article class="count-kpi driver">
+        <span class="metric-icon cyan"><i data-lucide="history"></i></span>
+        <div>
+            <small>Drivers yesterday</small>
+            <strong><?= number_format($summary['yesterday_drivers']) ?></strong>
+            <p><?= e(date('d M Y', strtotime($summary['yesterday_date']))) ?></p>
+        </div>
+    </article>
+    <article class="count-kpi total">
+        <span class="metric-icon success"><i data-lucide="users-round"></i></span>
+        <div>
+            <small>Total customers</small>
+            <strong><?= number_format($summary['total_customers']) ?></strong>
+            <p><?= number_format($summary['week_customers']) ?> in last 7 days</p>
+        </div>
+    </article>
+    <article class="count-kpi total">
+        <span class="metric-icon indigo"><i data-lucide="badge-check"></i></span>
+        <div>
+            <small>Total drivers</small>
+            <strong><?= number_format($summary['total_drivers']) ?></strong>
+            <p><?= number_format($summary['week_drivers']) ?> in last 7 days</p>
+        </div>
+    </article>
+</section>
+
+<section class="panel registration-ledger-panel reveal stagger-2">
+    <div class="panel-heading registration-ledger-heading">
+        <div>
+            <p class="eyebrow">Daily ledger</p>
+            <h3>Registration counts</h3>
+            <p class="muted">One record per date. Saving the same date updates that day's totals instead of creating a duplicate.</p>
+        </div>
+        <span class="status-chip on-track"><i data-lucide="shield-check"></i>Count only</span>
+    </div>
+
+    <div class="table-wrap registration-ledger-wrap">
+        <table class="registration-ledger-table">
+            <thead>
+                <tr>
+                    <th>Date</th>
+                    <th class="numeric">Customers</th>
+                    <th class="numeric">Drivers</th>
+                    <th class="numeric">Combined</th>
+                    <th>Last update</th>
+                    <th class="actions-col">Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+            <?php if (!$rows): ?>
+                <tr>
+                    <td colspan="6">
+                        <div class="empty-state registration-empty">
+                            <i data-lucide="bar-chart-3"></i>
+                            <h4>No daily counts yet</h4>
+                            <p>Add today's or yesterday's totals to begin.</p>
+                        </div>
+                    </td>
+                </tr>
+            <?php else: ?>
+                <?php foreach ($rows as $r):
+                    $customers = (int)$r['customers_registered'];
+                    $drivers = (int)$r['drivers_registered'];
+                    $payload = [
+                        'id' => (int)$r['id'],
+                        'activity_date' => $r['activity_date'],
+                        'customers_registered' => $customers,
+                        'drivers_registered' => $drivers,
+                    ];
+                ?>
+                    <tr>
+                        <td>
+                            <div class="ledger-date-cell">
+                                <span class="ledger-date-icon"><i data-lucide="calendar-days"></i></span>
+                                <div>
+                                    <strong><?= e(date('D, d M Y', strtotime($r['activity_date']))) ?></strong>
+                                    <small><?= e(date('l', strtotime($r['activity_date']))) ?></small>
+                                </div>
+                            </div>
+                        </td>
+                        <td class="numeric"><span class="ledger-number customer-number"><?= number_format($customers) ?></span></td>
+                        <td class="numeric"><span class="ledger-number driver-number"><?= number_format($drivers) ?></span></td>
+                        <td class="numeric"><strong class="ledger-combined"><?= number_format($customers + $drivers) ?></strong></td>
+                        <td>
+                            <div class="ledger-updated">
+                                <strong><?= e(format_datetime($r['updated_at'], 'd M, h:i A')) ?></strong>
+                                <small><?= e($r['updated_by_email']) ?></small>
+                            </div>
+                        </td>
+                        <td class="actions-col">
+                            <div class="ledger-actions">
+                                <?php if (can('drivers.edit')): ?>
+                                    <button class="icon-btn sm ledger-action" type="button" title="Edit daily count" aria-label="Edit daily count" data-growth-edit='<?= e(json_encode($payload, JSON_UNESCAPED_SLASHES)) ?>'>
+                                        <i data-lucide="pencil"></i>
+                                    </button>
+                                    <form method="post" action="<?= e(url('handlers/growth-count-delete.php')) ?>">
+                                        <?= csrf_field() ?>
+                                        <input type="hidden" name="id" value="<?= (int)$r['id'] ?>">
+                                        <button class="icon-btn sm danger-text ledger-action" type="submit" title="Delete daily count" aria-label="Delete daily count" data-confirm="Delete counts for <?= e(date('d M Y', strtotime($r['activity_date']))) ?>?">
+                                            <i data-lucide="trash-2"></i>
+                                        </button>
+                                    </form>
+                                <?php else: ?>
+                                    <span class="muted">Read only</span>
+                                <?php endif; ?>
+                            </div>
+                        </td>
+                    </tr>
+                <?php endforeach; ?>
+            <?php endif; ?>
+            </tbody>
+        </table>
+    </div>
+</section>
+
+<div class="modal" id="growthCountModal" aria-hidden="true">
+    <div class="modal-card compact-modal">
+        <button class="modal-close" data-modal-close><i data-lucide="x"></i></button>
+        <p class="eyebrow">Daily registration input</p>
+        <h3 id="growthCountTitle">Add daily count</h3>
+        <p class="muted">Only numbers are stored. No personal customer or driver information is needed.</p>
+        <form class="form-grid" method="post" action="<?= e(url('handlers/growth-count-save.php')) ?>">
+            <?= csrf_field() ?>
+            <input type="hidden" name="id" id="growthCountId">
+            <label class="span-2">Registration date
+                <input type="date" name="activity_date" id="growthCountDate" value="<?= e($summary['today_date']) ?>" required>
+            </label>
+            <label>Customers registered
+                <input type="number" name="customers_registered" id="growthCustomers" min="0" max="1000000" value="0" required>
+            </label>
+            <label>Drivers registered
+                <input type="number" name="drivers_registered" id="growthDrivers" min="0" max="1000000" value="0" required>
+            </label>
+            <div class="count-preview span-2">
+                <span><i data-lucide="info"></i></span>
+                <p>Use this form for <strong>today</strong>, <strong>yesterday</strong>, or any historical date. Totals update automatically on Admin and Public dashboards.</p>
+            </div>
+            <div class="form-actions span-2">
+                <button type="button" class="btn btn-soft" data-modal-close>Cancel</button>
+                <button class="btn btn-primary"><i data-lucide="save"></i>Save counts</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<?php include __DIR__ . '/includes/footer.php'; ?>

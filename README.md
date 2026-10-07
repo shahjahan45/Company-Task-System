@@ -103,3 +103,17 @@ Authorized administrators now have complete Create / Read / Update / Delete flow
 - Campaigns: create, read, edit name/dates/target/manager/status/notes, delete
 
 The public dashboard remains read-only and exposes only privacy-safe operational information.
+
+
+## Count-only registration workflow
+
+The current build does not require customer or driver personal details for growth reporting. Admin uses **Registration Counts** to save one daily record containing only:
+
+- Date
+- Customers registered
+- Drivers registered
+
+The system calculates Today, Yesterday, 7-day, campaign, and all-time totals automatically. The public root page is a compact one-screen command center, and the Task List button opens a detailed read-only task drawer.
+
+## Professional Kanban Task Workflow
+The task module supports optional descriptions, starting workflow status/progress, independent assignment to all active employees, duplication, and authenticated drag-and-drop status changes across Backlog, To Do, In Progress, Blocked, In Review, and Completed. Team-wide assignment creates one independent task record per employee so employee completion percentages remain accurate.

@@ -37,6 +37,13 @@ function url(string $path = ''): string {
     return $base . ($path !== '' ? '/' . ltrim($path, '/') : '/');
 }
 
+function asset_url(string $path): string {
+    $path = ltrim(str_replace('\\','/',$path), '/');
+    $full = PROJECT_ROOT . '/' . $path;
+    $version = is_file($full) ? (string)filemtime($full) : (string)time();
+    return url($path) . '?v=' . rawurlencode($version);
+}
+
 function redirect(string $path): never { header('Location: ' . url($path)); exit; }
 function redirect_raw(string $target): never { header('Location: ' . $target); exit; }
 
@@ -86,12 +93,13 @@ function create_notification(int $userId,string $type,string $title,string $mess
 }
 
 function task_can_transition(string $from,string $to): bool {
-    $map=[
-        'backlog'=>['to_do','cancelled'],'to_do'=>['in_progress','blocked','cancelled'],
-        'in_progress'=>['blocked','in_review','completed','cancelled'],'blocked'=>['in_progress','cancelled'],
-        'in_review'=>['in_progress','completed'],'completed'=>['in_progress'],'cancelled'=>['backlog','to_do'],
-    ];
-    return $from===$to || in_array($to,$map[$from]??[],true);
+    // Kanban managers can deliberately move work between any active workflow column.
+    // Cancelled remains recoverable, while all active states may also be cancelled from the edit form.
+    $active=['backlog','to_do','in_progress','blocked','in_review','completed'];
+    if($from===$to)return true;
+    if(in_array($from,$active,true) && in_array($to,$active,true))return true;
+    if(in_array($from,$active,true) && $to==='cancelled')return true;
+    return $from==='cancelled' && in_array($to,['backlog','to_do'],true);
 }
 
 function campaign_progress(array $campaign,int $counted,int $todayCount=0,?DateTimeImmutable $now=null): array {
@@ -111,6 +119,24 @@ function campaign_progress(array $campaign,int $counted,int $todayCount=0,?DateT
     return ['target'=>$target,'counted'=>$counted,'remaining'=>$remaining,'percentage'=>$percentage,'visual_percentage'=>$visual,'total_days'=>$totalDays,'days_elapsed'=>$elapsed,'days_remaining'=>$remainingDays,'average_daily'=>$avg,'required_daily'=>$required,'daily_target'=>$dailyTarget,'today_count'=>$todayCount,'planned_to_date'=>$planned,'pace_delta'=>$delta,'pace_status'=>$delta>=0?'on-track':'behind','projected_completion_date'=>$projected,'is_complete'=>$counted>=$target,'is_expired'=>$now>$deadline,'start_date'=>$campaign['start_date'],'deadline'=>$campaign['deadline']];
 }
 
+
+function next_employee_code(PDO $pdo, ?int $preferredNumber = null): string {
+    $maxNumeric = 0;
+    try {
+        $value = $pdo->query("SELECT MAX(CAST(SUBSTRING(employee_code,5) AS UNSIGNED)) FROM employees WHERE employee_code REGEXP '^EMP-[0-9]+$'")->fetchColumn();
+        $maxNumeric = max(0, (int)$value);
+    } catch (Throwable) {}
+    $number = max(1, (int)($preferredNumber ?? 0), $maxNumeric + 1);
+    $check = $pdo->prepare('SELECT 1 FROM employees WHERE employee_code=? LIMIT 1');
+    do {
+        $code = 'EMP-' . str_pad((string)$number, 4, '0', STR_PAD_LEFT);
+        $check->execute([$code]);
+        if (!$check->fetchColumn()) return $code;
+        $number++;
+    } while ($number < 1000000000);
+    throw new RuntimeException('Unable to generate a unique employee code.');
+}
+
 function pagination_meta(int $total,int $page,int $per=15): array { $pages=max(1,(int)ceil($total/$per));$page=max(1,min($page,$pages));return ['total'=>$total,'page'=>$page,'pages'=>$pages,'per'=>$per,'offset'=>($page-1)*$per]; }
 
 function json_response(array $data,int $status=200): never { http_response_code($status); header('Content-Type: application/json; charset=utf-8'); echo json_encode($data,JSON_UNESCAPED_SLASHES); exit; }
@@ -121,5 +147,5 @@ function brand_logo_url(): ?string {
     $relative=ltrim(str_replace('\\','/',$relative),'/');
     if(str_contains($relative,'..'))return null;
     $full=PROJECT_ROOT.'/'.$relative;
-    return is_file($full)?url($relative):null;
+    return is_file($full)?(url($relative).'?v='.rawurlencode((string)filemtime($full))):null;
 }

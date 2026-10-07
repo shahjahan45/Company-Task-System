@@ -108,6 +108,20 @@ CREATE TABLE IF NOT EXISTS campaigns (
   CONSTRAINT fk_campaign_updated_by FOREIGN KEY(updated_by) REFERENCES users(id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+CREATE TABLE IF NOT EXISTS daily_growth_counts (
+  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  activity_date DATE NOT NULL UNIQUE,
+  customers_registered INT UNSIGNED NOT NULL DEFAULT 0,
+  drivers_registered INT UNSIGNED NOT NULL DEFAULT 0,
+  created_by BIGINT UNSIGNED NULL,
+  updated_by BIGINT UNSIGNED NULL,
+  created_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  INDEX idx_growth_date(activity_date),
+  CONSTRAINT fk_growth_created_by FOREIGN KEY(created_by) REFERENCES users(id) ON DELETE SET NULL,
+  CONSTRAINT fk_growth_updated_by FOREIGN KEY(updated_by) REFERENCES users(id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 CREATE TABLE IF NOT EXISTS drivers (
   id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   driver_code VARCHAR(40) NOT NULL UNIQUE,
@@ -596,4 +610,16 @@ INSERT IGNORE INTO task_activity_logs(task_id,user_id,action,from_value,to_value
 INSERT IGNORE INTO tasks(id,task_code,title,description,category_id,priority,created_by,primary_assignee_id,start_date,due_at,status,progress,completed_at) SELECT 3030,'TSK-DEMO-030','Prepare end-of-day operations summary — Samir','Demo task for Samir Khan. Used to test employee-wise task completion, progress and public dashboard visuals.',tc.id,'low',NULL,1006,'2026-09-30','2026-10-09 17:00:00','backlog',0,NULL FROM task_categories tc WHERE tc.name='Operations';
 INSERT IGNORE INTO task_assignees(task_id,employee_id) VALUES(3030,1006);
 INSERT IGNORE INTO task_activity_logs(task_id,user_id,action,from_value,to_value) VALUES(3030,NULL,'demo_seed',NULL,'backlog');
+
+-- Count-only customer/driver totals used by the public one-screen dashboard.
+INSERT INTO daily_growth_counts(activity_date,customers_registered,drivers_registered) VALUES
+(DATE_SUB(CURDATE(),INTERVAL 6 DAY),15,4),
+(DATE_SUB(CURDATE(),INTERVAL 5 DAY),18,5),
+(DATE_SUB(CURDATE(),INTERVAL 4 DAY),22,6),
+(DATE_SUB(CURDATE(),INTERVAL 3 DAY),20,5),
+(DATE_SUB(CURDATE(),INTERVAL 2 DAY),25,7),
+(DATE_SUB(CURDATE(),INTERVAL 1 DAY),27,8),
+(CURDATE(),30,10)
+ON DUPLICATE KEY UPDATE customers_registered=VALUES(customers_registered),drivers_registered=VALUES(drivers_registered);
+
 INSERT INTO system_settings(setting_key,setting_value,setting_type,is_public) VALUES('demo_data_loaded','1','boolean',0) ON DUPLICATE KEY UPDATE setting_value='1';
